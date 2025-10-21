@@ -342,13 +342,13 @@ int main(int argc, char* argv[]) {
 
     if (url.host.empty()) 
     {
-        std::fprintf(stderr, "error Empty host\n");
+        std::fprintf(stdout, "error Empty host\n");
         return 1;
     }
 
     if (isdigit(url.host[0]) || url.host[0] == '[') 
     {
-        std::fprintf(stderr, "error IP addresses not allowed, use hostname instead\n");
+        std::fprintf(stdout, "error IP addresses not allowed, use hostname instead\n");
         return 1;
     }
 
