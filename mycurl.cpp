@@ -180,9 +180,12 @@ static int get_status_code(const std::string& response) {
     if (second_space == std::string::npos) return -1;
     
     std::string code_str = status_line.substr(first_space + 1, second_space - first_space - 1);
-    try {
+    try 
+    {
         return std::stoi(code_str);
-    } catch (...) {
+    } 
+    catch (...) 
+    {
         return -1;
     }
 }
@@ -392,9 +395,12 @@ int main(int argc, char* argv[]) {
     
     /* do magic :3 */
 
-    if (is_default_port(url)) {
-    std::cout << "Using default port for " << url.scheme << "\n";
-    } else {
+    if (is_default_port(url)) 
+    {
+        std::cout << "Using default port for " << url.scheme << "\n";
+    } 
+    else 
+    {
         std::cout << "Using custom port " << url.port << "\n";
     }
 
