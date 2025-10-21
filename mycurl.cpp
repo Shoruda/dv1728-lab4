@@ -343,13 +343,13 @@ int main(int argc, char* argv[]) {
     if (url.host.empty()) 
     {
         std::fprintf(stderr, "error Empty host\n");
-        exit(1);
+        return 1;
     }
 
     if (isdigit(url.host[0]) || url.host[0] == '[') 
     {
         std::fprintf(stderr, "error IP addresses not allowed, use hostname instead\n");
-        exit(1);
+        return 1;
     }
 
     int sockfd;
