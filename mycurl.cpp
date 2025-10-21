@@ -167,7 +167,97 @@ finalize_defaults:
     return true;
 }
 
-bool handle_https(int sock, const Url& url, std::string& body, std::map<std::string, std::string>& headers) 
+static int get_status_code(const std::string& response) {
+    // First line should be like: "HTTP/1.1 200 OK"
+    auto first_line_end = response.find("\r\n");
+    if (first_line_end == std::string::npos) return -1;
+    
+    std::string status_line = response.substr(0, first_line_end);
+    
+    // Find first space, then parse next number
+    auto first_space = status_line.find(' ');
+    if (first_space == std::string::npos) return -1;
+    
+    auto second_space = status_line.find(' ', first_space + 1);
+    if (second_space == std::string::npos) return -1;
+    
+    std::string code_str = status_line.substr(first_space + 1, second_space - first_space - 1);
+    try {
+        return std::stoi(code_str);
+    } catch (...) {
+        return -1;
+    }
+}
+
+bool handle_http(int sock, const Url& url, std::string& body, std::map<std::string, std::string>& headers, int& status_code) 
+{
+    std::ostringstream req;
+    req << "GET " << url.path << " HTTP/1.1\r\n";
+    req << "Host: " << url.host << "\r\n";
+    req << "User-Agent: mycurl/1.0\r\n";
+    req << "Connection: close\r\n\r\n";
+
+    std::string request = req.str();
+    if (send(sock, request.c_str(), request.size(), 0) < 0) 
+    {
+        std::cerr << "Send failed: " << strerror(errno) << "\n";
+        return false;
+    }
+
+    std::string resp;
+    char buf[4096];
+    ssize_t n;
+    while ((n = recv(sock, buf, sizeof(buf), 0)) > 0)
+        resp.append(buf, n);
+
+    if (resp.empty()) 
+    {
+        std::cerr << "Empty HTTP response.\n";
+        return false;
+    }
+
+    status_code = get_status_code(resp);
+
+    auto pos = resp.find("\r\n\r\n");
+    if (pos == std::string::npos) 
+    {
+        std::cerr << "Malformed HTTP response (no header-body split)\n";
+        return false;
+    }
+
+    std::string header_str = resp.substr(0, pos);
+    body = resp.substr(pos + 4);
+
+    std::istringstream hdr_stream(header_str);
+    std::string line;
+    bool first = true;
+    while (std::getline(hdr_stream, line)) 
+    {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (first) 
+        {
+            std::cout << "HTTP Response: " << line << "\n";
+            first = false;
+        } 
+        else 
+        {
+            auto colon = line.find(':');
+            if (colon != std::string::npos) 
+            {
+                std::string key = line.substr(0, colon);
+                std::string value = line.substr(colon + 1);
+                key.erase(std::remove_if(key.begin(), key.end(), ::isspace), key.end());
+                value.erase(0, value.find_first_not_of(" \t"));
+                to_lower_inplace(key);
+                headers[key] = value;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool handle_https(int sock, const Url& url, std::string& body, std::map<std::string, std::string>& headers, int& status_code) 
 {
     SSL_library_init();
     SSL_load_error_strings();
@@ -217,6 +307,8 @@ bool handle_https(int sock, const Url& url, std::string& body, std::map<std::str
     SSL_free(ssl);
     SSL_CTX_free(ctx);
 
+    status_code = get_status_code(resp);
+
     auto pos = resp.find("\r\n\r\n");
     if (pos != std::string::npos)
         body = resp.substr(pos + 4);
@@ -225,73 +317,6 @@ bool handle_https(int sock, const Url& url, std::string& body, std::map<std::str
 
     return true;
 }
-
-bool handle_http(int sock, const Url& url, std::string& body, std::map<std::string, std::string>& headers) 
-{
-    std::ostringstream req;
-    req << "GET " << url.path << " HTTP/1.1\r\n";
-    req << "Host: " << url.host << "\r\n";
-    req << "User-Agent: mycurl/1.0\r\n";
-    req << "Connection: close\r\n\r\n";
-
-    std::string request = req.str();
-    if (send(sock, request.c_str(), request.size(), 0) < 0) 
-    {
-        std::cerr << "Send failed: " << strerror(errno) << "\n";
-        return false;
-    }
-
-    std::string response;
-    char buf[4096];
-    ssize_t n;
-    while ((n = recv(sock, buf, sizeof(buf), 0)) > 0)
-        response.append(buf, n);
-
-    if (response.empty()) 
-    {
-        std::cerr << "Empty HTTP response.\n";
-        return false;
-    }
-
-    auto pos = response.find("\r\n\r\n");
-    if (pos == std::string::npos) 
-    {
-        std::cerr << "Malformed HTTP response (no header-body split)\n";
-        return false;
-    }
-
-    std::string header_str = response.substr(0, pos);
-    body = response.substr(pos + 4);
-
-    std::istringstream hdr_stream(header_str);
-    std::string line;
-    bool first = true;
-    while (std::getline(hdr_stream, line)) 
-    {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (first) 
-        {
-            std::cout << "HTTP Response: " << line << "\n";
-            first = false;
-        } 
-        else 
-        {
-            auto colon = line.find(':');
-            if (colon != std::string::npos) 
-            {
-                std::string key = line.substr(0, colon);
-                std::string value = line.substr(colon + 1);
-                key.erase(std::remove_if(key.begin(), key.end(), ::isspace), key.end());
-                value.erase(0, value.find_first_not_of(" \t"));
-                to_lower_inplace(key);
-                headers[key] = value;
-            }
-        }
-    }
-
-    return true;
-}
-
 
 int main(int argc, char* argv[]) {
     bool cache_enabled = false;
@@ -340,94 +365,147 @@ int main(int argc, char* argv[]) {
     
     /* do magic :3 */
 
-    if (url.host.empty()) 
+    while (redirects < max_redirects) 
     {
-        std::fprintf(stdout, "error Empty host\n");
-        return 1;
-    }
-
-    if (isdigit(url.host[0]) || url.host[0] == '[') 
-    {
-        std::fprintf(stdout, "error IP addresses not allowed, use hostname instead\n");
-        return 1;
-    }
-
-    int sockfd;
-    struct addrinfo hints{}, *res;
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    int status = getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &res);
-    if (status != 0) 
-    {
-        std::fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
-        exit(1);
-    }
-
-    sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (sockfd < 0) 
-    {
-        std::fprintf(stderr, "ERROR: socket creation failed: %s\n", strerror(errno));
-        freeaddrinfo(res);
-        exit(1);
-    }
-
-    if (connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) 
-    {
-        std::fprintf(stderr, "ERROR: connect failed: %s\n", strerror(errno));
-        freeaddrinfo(res);
-        close(sockfd);
-        exit(1);
-    }
-
-    freeaddrinfo(res);
-    std::printf("Connected to %s:%s\n", url.host.c_str(), url.port.c_str());
-
-
-    std::map<std::string, std::string> headers;
-    std::string body;
-    bool ok = false;
-
-    if (url.scheme == "http") 
-    {
-        ok = handle_http(sockfd, url, body, headers);
-    } else if (url.scheme == "https") 
-    {
-        ok = handle_https(sockfd, url, body, headers);
-    }
-
-    close(sockfd);
-
-    if (!output_file.empty()) 
-    {
-        if (output_file == "-") 
+        if (url.host.empty()) 
         {
-            std::cout << body;
+            std::fprintf(stdout, "error Empty host\n");
+            return 1;
+        }
+
+        if (isdigit(url.host[0]) || url.host[0] == '[') 
+        {
+            std::fprintf(stdout, "error IP addresses not allowed, use hostname instead\n");
+            return 1;
+        }
+
+        int sockfd;
+        struct addrinfo hints{}, *res;
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+
+        int status = getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &res);
+        if (status != 0) 
+        {
+            std::fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+            exit(1);
+        }
+
+        sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+        if (sockfd < 0) 
+        {
+            std::fprintf(stderr, "ERROR: socket creation failed: %s\n", strerror(errno));
+            freeaddrinfo(res);
+            exit(1);
+        }
+
+        if (connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) 
+        {
+            std::fprintf(stderr, "ERROR: connect failed: %s\n", strerror(errno));
+            freeaddrinfo(res);
+            close(sockfd);
+            exit(1);
+        }
+
+        freeaddrinfo(res);
+        std::printf("Connected to %s:%s\n", url.host.c_str(), url.port.c_str());
+
+        std::map<std::string, std::string> headers;
+        std::string body;
+        int status_code = 0;
+        bool ok = false;
+
+        if (url.scheme == "http") 
+        {
+            ok = handle_http(sockfd, url, body, headers, status_code);
         } 
-        else 
+        else if (url.scheme == "https") 
         {
-            std::ofstream outfile(output_file, std::ios::binary);
-            if (!outfile.is_open()) 
+            ok = handle_https(sockfd, url, body, headers, status_code);
+        }
+
+        close(sockfd);
+
+        if (!ok) 
+        {
+            std::cerr << "Request failed\n";
+            return EXIT_FAILURE;
+        }
+
+        if (status_code >= 300 && status_code < 400) 
+        {
+            auto loc_it = headers.find("location");
+            if (loc_it == headers.end()) 
             {
-                std::cerr << "Error: could not open file for writing: " << output_file << "\n";
+                std::cerr << "Redirect without Location header\n";
                 return EXIT_FAILURE;
             }
-            outfile.write(body.data(), body.size());
-            outfile.close();
-            std::cout << "Saved " << body.size() << " bytes to '" << output_file << "'\n";
+
+            std::string new_location = loc_it->second;
+            std::cout << "Redirect " << redirects + 1 << ": " << status_code 
+                    << " -> " << new_location << "\n";
+
+            Url new_url;
+            std::string parse_error;
+            
+            if (new_location[0] == '/') 
+            {
+                new_url = url;
+                new_url.path = new_location;
+            } 
+            else if (new_location.find("://") == std::string::npos) 
+            {
+                new_url = url;
+                new_url.path = new_location;
+            } 
+            else 
+            {
+                if (!parse_url(new_location, new_url, parse_error)) 
+                {
+                    std::fprintf(stdout, "ERROR parsing redirect URL: %s\n", parse_error.c_str());
+                    return EXIT_FAILURE;
+                }
+            }
+
+            url = new_url;
+            redirects++;
+            continue;
         }
-    }   
-    int resp_body_size=body.size();
-    
 
-    auto t2 = clock::now();
-    std::chrono::duration<double> diff = t2 - t1; // seconds
-    std::cout << std::fixed << std::setprecision(6);
-    std::cout << now_local_yy_mm_dd_hh_mm_ss() << " " << url_str << " " << resp_body_size << " [bytes] " << diff.count()
-              << " [s] " << (8*resp_body_size/diff.count())/1e6 << " [Mbps]\n";
+        if (!output_file.empty()) 
+        {
+            if (output_file == "-") 
+            {
+                std::cout << body;
+            } 
+            else 
+            {
+                std::ofstream outfile(output_file, std::ios::binary);
+                if (!outfile.is_open()) 
+                {
+                    std::cerr << "Error: could not open file for writing: " << output_file << "\n";
+                    return EXIT_FAILURE;
+                }
+                outfile.write(body.data(), body.size());
+                outfile.close();
+                std::cout << "Saved " << body.size() << " bytes to '" << output_file << "'\n";
+            }
+        }   
+        
+        int resp_body_size = body.size();
+        auto t2 = clock::now();
+        std::chrono::duration<double> diff = t2 - t1; //seconds
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << now_local_yy_mm_dd_hh_mm_ss() << " " << url_str << " " 
+                << resp_body_size << " [bytes] " << diff.count()
+                << " [s] " << (8*resp_body_size/diff.count())/1e6 << " [Mbps]\n";
+        
+        break;
+    }
 
-
-
-    
-    return EXIT_SUCCESS;
+    if (redirects >= max_redirects) 
+    {
+        std::cerr << "Too many redirects (max " << max_redirects << ")\n";
+        return EXIT_FAILURE;
+    }
 }
