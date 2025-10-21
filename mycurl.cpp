@@ -416,21 +416,21 @@ int main(int argc, char* argv[]) {
         int status = getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &res);
         if (status != 0) 
         {
-            std::fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+            std::fprintf(stdout, "error getaddrinfo: %s\n", gai_strerror(status));
             exit(1);
         }
 
         sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
         if (sockfd < 0) 
         {
-            std::fprintf(stderr, "ERROR: socket creation failed: %s\n", strerror(errno));
+            std::fprintf(stdout, "error socket creation failed: %s\n", strerror(errno));
             freeaddrinfo(res);
             exit(1);
         }
 
         if (connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) 
         {
-            std::fprintf(stderr, "ERROR: connect failed: %s\n", strerror(errno));
+            std::fprintf(stdout, "error connect failed: %s\n", strerror(errno));
             freeaddrinfo(res);
             close(sockfd);
             exit(1);
