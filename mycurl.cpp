@@ -311,7 +311,36 @@ bool handle_https(int sock, const Url& url, std::string& body, std::map<std::str
 
     auto pos = resp.find("\r\n\r\n");
     if (pos != std::string::npos)
+    {
+        std::string header_str = resp.substr(0, pos);
         body = resp.substr(pos + 4);
+        std::istringstream hdr_stream(header_str);
+        std::string line;
+        bool first = true;
+        while (std::getline(hdr_stream, line)) 
+        {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (first) 
+            {
+                std::cout << "HTTPS Response: " << line << "\n";
+                first = false;
+            } 
+            else 
+            {
+                auto colon = line.find(':');
+                if (colon != std::string::npos) 
+                {
+                    std::string key = line.substr(0, colon);
+                    std::string value = line.substr(colon + 1);
+                    key.erase(std::remove_if(key.begin(), key.end(), ::isspace), key.end());
+                    value.erase(0, value.find_first_not_of(" \t"));
+                    to_lower_inplace(key);
+                    headers[key] = value;
+                }
+
+            }
+        }
+    }       
     else
         body = resp;
 
