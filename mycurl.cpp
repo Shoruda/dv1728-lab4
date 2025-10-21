@@ -392,6 +392,12 @@ int main(int argc, char* argv[]) {
     
     /* do magic :3 */
 
+    if (is_default_port(url)) {
+    std::cout << "Using default port for " << url.scheme << "\n";
+    } else {
+        std::cout << "Using custom port " << url.port << "\n";
+    }
+
     while (redirects <= max_redirects) 
     {
         if (url.host.empty()) 
