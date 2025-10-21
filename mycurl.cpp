@@ -412,12 +412,6 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        if (isdigit(url.host[0]) || url.host[0] == '[') 
-        {
-            std::fprintf(stdout, "error IP addresses not allowed, use hostname instead\n");
-            return 1;
-        }
-
         int sockfd;
         struct addrinfo hints{}, *res;
         hints.ai_family = AF_UNSPEC;
