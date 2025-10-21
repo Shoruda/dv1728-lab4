@@ -166,6 +166,131 @@ finalize_defaults:
     return true;
 }
 
+bool handle_https(int sock, const Url& url, std::string& body, std::map<std::string, std::string>& headers) 
+{
+    SSL_library_init();
+    SSL_load_error_strings();
+
+    const SSL_METHOD* method = TLS_client_method();
+    SSL_CTX* ctx = SSL_CTX_new(method);
+    if (!ctx) return false;
+
+    SSL* ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, sock);
+    SSL_set_tlsext_host_name(ssl, url.host.c_str());
+
+    if (SSL_connect(ssl) <= 0) {
+        ERR_print_errors_fp(stderr);
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
+        return false;
+    }
+
+    X509* cert = SSL_get_peer_certificate(ssl);
+    if (cert) 
+    {
+        char* subj = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+        char* issuer = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
+        std::cout << "SSL certificate subject: " << subj << "\n";
+        std::cout << "SSL certificate issuer: " << issuer << "\n";
+        OPENSSL_free(subj);
+        OPENSSL_free(issuer);
+        X509_free(cert);
+    }
+
+    std::ostringstream req;
+    req << "GET " << url.path << " HTTP/1.1\r\n";
+    req << "Host: " << url.host << "\r\n";
+    req << "User-Agent: mycurl/1.0\r\n";
+    req << "Connection: close\r\n\r\n";
+    std::string req_str = req.str();
+
+    SSL_write(ssl, req_str.c_str(), req_str.size());
+
+    char buf[4096];
+    std::string resp;
+    int n;
+    while ((n = SSL_read(ssl, buf, sizeof(buf))) > 0)
+        resp.append(buf, n);
+
+    SSL_free(ssl);
+    SSL_CTX_free(ctx);
+
+    auto pos = resp.find("\r\n\r\n");
+    if (pos != std::string::npos)
+        body = resp.substr(pos + 4);
+    else
+        body = resp;
+
+    return true;
+}
+
+bool handle_http(int sock, const Url& url, std::string& body, std::map<std::string, std::string>& headers) 
+{
+    std::ostringstream req;
+    req << "GET " << url.path << " HTTP/1.1\r\n";
+    req << "Host: " << url.host << "\r\n";
+    req << "User-Agent: mycurl/1.0\r\n";
+    req << "Connection: close\r\n\r\n";
+
+    std::string request = req.str();
+    if (send(sock, request.c_str(), request.size(), 0) < 0) 
+    {
+        std::cerr << "Send failed: " << strerror(errno) << "\n";
+        return false;
+    }
+
+    std::string response;
+    char buf[4096];
+    ssize_t n;
+    while ((n = recv(sock, buf, sizeof(buf), 0)) > 0)
+        response.append(buf, n);
+
+    if (response.empty()) 
+    {
+        std::cerr << "Empty HTTP response.\n";
+        return false;
+    }
+
+    auto pos = response.find("\r\n\r\n");
+    if (pos == std::string::npos) 
+    {
+        std::cerr << "Malformed HTTP response (no header-body split)\n";
+        return false;
+    }
+
+    std::string header_str = response.substr(0, pos);
+    body = response.substr(pos + 4);
+
+    std::istringstream hdr_stream(header_str);
+    std::string line;
+    bool first = true;
+    while (std::getline(hdr_stream, line)) 
+    {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (first) 
+        {
+            std::cout << "HTTP Response: " << line << "\n";
+            first = false;
+        } 
+        else 
+        {
+            auto colon = line.find(':');
+            if (colon != std::string::npos) 
+            {
+                std::string key = line.substr(0, colon);
+                std::string value = line.substr(colon + 1);
+                key.erase(std::remove_if(key.begin(), key.end(), ::isspace), key.end());
+                value.erase(0, value.find_first_not_of(" \t"));
+                to_lower_inplace(key);
+                headers[key] = value;
+            }
+        }
+    }
+
+    return true;
+}
+
 
 int main(int argc, char* argv[]) {
     bool cache_enabled = false;
@@ -212,8 +337,74 @@ int main(int argc, char* argv[]) {
 
     auto t1 = clock::now();
     
-    /* do stuff */
-    int resp_body_size=0xFACCE;
+    /* do magic :3 */
+
+    int sockfd;
+    struct addrinfo hints{}, *res;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int status = getaddrinfo(url.host.c_str(), url.port.c_str(), &hints, &res);
+    if (status != 0) 
+    {
+        std::fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        exit(1);
+    }
+
+    sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sockfd < 0) 
+    {
+        fprintf(stderr, "ERROR: socket creation failed: %s\n", strerror(errno));
+        freeaddrinfo(res);
+        exit(1);
+    }
+
+    if (connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) 
+    {
+        fprintf(stderr, "ERROR: connect failed: %s\n", strerror(errno));
+        freeaddrinfo(res);
+        close(sockfd);
+        exit(1);
+    }
+
+    freeaddrinfo(res);
+    printf("Connected to %s:%s\n", url.host.c_str(), url.port.c_str());
+
+
+    std::map<std::string, std::string> headers;
+    std::string body;
+    bool ok = false;
+
+    if (url.scheme == "http") 
+    {
+        ok = handle_http(sockfd, url, body, headers);
+    } else if (url.scheme == "https") 
+    {
+        ok = handle_https(sockfd, url, body, headers);
+    }
+
+    close(sockfd);
+
+    if (!output_file.empty()) 
+    {
+        if (output_file == "-") 
+        {
+            std::cout << body;
+        } 
+        else 
+        {
+            std::ofstream outfile(output_file, std::ios::binary);
+            if (!outfile.is_open()) 
+            {
+                std::cerr << "Error: could not open file for writing: " << output_file << "\n";
+                return EXIT_FAILURE;
+            }
+            outfile.write(body.data(), body.size());
+            outfile.close();
+            std::cout << "Saved " << body.size() << " bytes to '" << output_file << "'\n";
+        }
+    }   
+    int resp_body_size=body.size();
     
 
     auto t2 = clock::now();
