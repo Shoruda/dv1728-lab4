@@ -535,7 +535,7 @@ int main(int argc, char* argv[]) {
 
     if (redirects >= max_redirects) 
     {
-        std::cerr << "Too many redirects (max " << max_redirects << ")\n";
-        return EXIT_FAILURE;
+        std::fprintf(stdout, "error too many redirects\n");
+        exit(1);
     }
 }
