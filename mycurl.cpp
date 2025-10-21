@@ -168,13 +168,11 @@ finalize_defaults:
 }
 
 static int get_status_code(const std::string& response) {
-    // First line should be like: "HTTP/1.1 200 OK"
     auto first_line_end = response.find("\r\n");
     if (first_line_end == std::string::npos) return -1;
     
     std::string status_line = response.substr(0, first_line_end);
     
-    // Find first space, then parse next number
     auto first_space = status_line.find(' ');
     if (first_space == std::string::npos) return -1;
     
