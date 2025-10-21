@@ -394,7 +394,7 @@ int main(int argc, char* argv[]) {
     
     /* do magic :3 */
 
-    while (redirects < max_redirects) 
+    while (redirects <= max_redirects) 
     {
         if (url.host.empty()) 
         {
@@ -533,9 +533,9 @@ int main(int argc, char* argv[]) {
         break;
     }
 
-    if (redirects >= max_redirects) 
+    if (redirects > max_redirects) 
     {
         std::fprintf(stdout, "error too many redirects\n");
-        exit(1);
+        return 1;
     }
 }
