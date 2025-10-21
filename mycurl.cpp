@@ -471,6 +471,7 @@ int main(int argc, char* argv[]) {
             }
 
             std::string new_location = loc_it->second;
+            std::cout << "redirecting" << "\n";
             std::cout << "Redirect " << redirects + 1 << ": " << status_code 
                     << " -> " << new_location << "\n";
 
