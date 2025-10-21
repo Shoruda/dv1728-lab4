@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <cctype>
 
 namespace fs = std::filesystem;
 
@@ -338,6 +339,18 @@ int main(int argc, char* argv[]) {
     auto t1 = clock::now();
     
     /* do magic :3 */
+
+    if (url.host.empty()) 
+    {
+        std::fprintf(stderr, "ERROR: Empty host\n");
+        exit(1);
+    }
+
+    if (isdigit(url.host[0]) || url.host[0] == '[') 
+    {
+        std::fprintf(stderr, "ERROR: IP addresses not allowed, use hostname instead\n");
+        exit(1);
+    }
 
     int sockfd;
     struct addrinfo hints{}, *res;
