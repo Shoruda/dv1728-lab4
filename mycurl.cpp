@@ -354,21 +354,21 @@ int main(int argc, char* argv[]) {
     sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     if (sockfd < 0) 
     {
-        fprintf(stderr, "ERROR: socket creation failed: %s\n", strerror(errno));
+        std::fprintf(stderr, "ERROR: socket creation failed: %s\n", strerror(errno));
         freeaddrinfo(res);
         exit(1);
     }
 
     if (connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) 
     {
-        fprintf(stderr, "ERROR: connect failed: %s\n", strerror(errno));
+        std::fprintf(stderr, "ERROR: connect failed: %s\n", strerror(errno));
         freeaddrinfo(res);
         close(sockfd);
         exit(1);
     }
 
     freeaddrinfo(res);
-    printf("Connected to %s:%s\n", url.host.c_str(), url.port.c_str());
+    std::printf("Connected to %s:%s\n", url.host.c_str(), url.port.c_str());
 
 
     std::map<std::string, std::string> headers;
